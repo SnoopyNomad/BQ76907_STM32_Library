@@ -1,1 +1,1 @@
-# BQ76907_STM32_Library
+# BQ76907 STM32 Library
