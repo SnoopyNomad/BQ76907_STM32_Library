@@ -11,29 +11,34 @@
 #include "bq76907.h"
 
 /* BQ76907 I2C Address */
-#define BQ76907_ADDR		0x08
+#define BQ76907_ADDR		    0x08
 
-/* Register addresses */
-#define SAFETY_ALERT_A	    0x02
-#define SAFETY_STATUS_A     0x03
-#define SAFETY_ALERT_B	    0x04
-#define SAFETY_STATUS_B     0x05
-#define BATTERY_STATUS	    0x12
-#define CELL_1_VOLTAGE	    0x14
-#define CELL_2_VOLTAGE	    0x16
-#define CELL_3_VOLTAGE	    0x18
-#define CELL_4_VOLTAGE	    0x1A
-#define CELL_5_VOLTAGE	    0x1C
-#define CELL_6_VOLTAGE	    0x1E
-#define CELL_7_VOLTAGE	    0x20
-#define TS_MEASUREMENT	    0x2A
-#define ALARM_STATUS        0x62
-#define ALARM_RAW_STATUS    0x64
-#define ALARM_ENABLE	    0x66
-#define FET_CONTROL	        0x68
-#define REGOUT_CONTROL	    0x69
+/* Register Addresses */
+#define SAFETY_ALERT_A	        0x02
+#define SAFETY_STATUS_A         0x03
+#define SAFETY_ALERT_B	        0x04
+#define SAFETY_STATUS_B         0x05
+#define BATTERY_STATUS	        0x12
+#define CELL_1_VOLTAGE	        0x14
+#define CELL_2_VOLTAGE	        0x16
+#define CELL_3_VOLTAGE	        0x18
+#define CELL_4_VOLTAGE	        0x1A
+#define CELL_5_VOLTAGE	        0x1C
+#define CELL_6_VOLTAGE	        0x1E
+#define TS_MEASUREMENT	        0x2A
+#define ALARM_STATUS            0x62
+#define ALARM_RAW_STATUS        0x64
+#define ALARM_ENABLE	        0x66
+#define FET_CONTROL	            0x68
+#define REGOUT_CONTROL	        0x69
 
-#define NUM_CELLS           6
+/* Battery Constants */
+#define NUM_CELLS               6
+#define BATTERY_CAPACITY_MAH    2800
+
+/* State of Charge Variables */
+static float SoC = 100.0f;
+static float SoCInit = 100.0f;
 
 extern I2C_HandleTypeDef hi2c1;
 
@@ -698,14 +703,14 @@ ErrorCode_t BQ76907_ReadCellVoltages(uint16_t *voltages){
  * @param adcCode ADC code
  * @return Temperature in Celsius
  */
-static inline float BQ76907_TSADCtoTemperature(uint16_t adcCode){
+static inline float TSADCtoTemperature(uint16_t adcCode){
     float vTs = adcCode * 1.8f * 5.0f / 3.0f / 32768.0f; // ≈ 92uV per LSB
     float vRef = 1.8f;
     float rPullup = 20000.0f; // 20kΩ
     float rNTC = rPullup * vTs / (vRef - vTs); 
 
     // Define thermistor parameters (adjust as needed for your NTC)
-    float B = 3435.0f;      // Beta value of thermistor (typical: 3435 or 3950)
+    float B = 4300.0f;      // Beta value of thermistor (typical: 3435 or 3950)
     float R0 = 10000.0f;    // Resistance at 25°C (10kΩ)
     float T0 = 298.15f;     // 25°C in Kelvin
 
@@ -726,7 +731,7 @@ ErrorCode_t BQ76907_ReadBatteryTemperature(float *temp){
     errorCode = BQ76907_ReadRegister(TS_MEASUREMENT, (uint8_t*)&adcCode, 2);
     if(errorCode != BQ76907_OK) return errorCode;
 
-    *temp = BQ76907_TSADCtoTemperature(adcCode);
+    *temp = TSADCtoTemperature(adcCode);
 
     return BQ76907_OK;
 }
@@ -883,5 +888,161 @@ ErrorCode_t BQ76907_ReadCBActiveCells(uint8_t *activeCells){
     if(errorCode != BQ76907_OK) return errorCode;
 
     return BQ76907_OK;
+}
+
+/**
+ * @brief Reads all cell voltages and returns the pack voltage.
+ * @param packVoltage Pointer to store the total pack voltage (in volts)
+ * @return ErrorCode_t
+ */
+static inline ErrorCode_t BQ76907_ReadPackVoltage(float *packVoltage){
+    uint16_t cellVoltages[NUM_CELLS];
+    ErrorCode_t errorCode = BQ76907_ReadCellVoltages(cellVoltages);
+    if(errorCode != BQ76907_OK) return errorCode;
+  
+    float sum = 0.0f;
+    for(uint8_t i = 0; i < NUM_CELLS; i++){
+        sum += cellVoltages[i];
+    }
+
+    *packVoltage = sum;
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Read the pass Q and elapsed time
+ * @param passQ Pointer to store the pass Q
+ * @param elapsedTime Pointer to store the elapsed time
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+static inline ErrorCode_t BQ76907_ReadPassQ(int64_t *passQ, float *elapsedTime){
+    ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x04, 0x00}; // PASSQ() subcommand
+    uint8_t data[12];
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_ReadRegister(0x40, data, 12);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    // Lower 32 bits (LSB)
+    int32_t passqLsb = (int32_t)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
+    // Upper 16 bits, sign-extended to 32 bits
+    int32_t passqMsb = (int32_t)(data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24));
+    // Combine to 48-bit signed value
+    int64_t passq = ((int64_t)passqMsb << 32) | ((uint32_t)passqLsb);
+
+    // Timer (in 250 ms units)
+    uint32_t timer = (uint32_t)(data[8] | (data[9] << 8) | (data[10] << 16) | (data[11] << 24));
+    float elapsedSeconds = timer * 0.25f;
+
+    *passQ = passq;
+    *elapsedTime = elapsedSeconds;
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Resets the charge integrator and timer.
+ * @return ErrorCode_t
+ */
+static inline ErrorCode_t BQ76907_ResetPassQ(void){
+    ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x05, 0x00}; // RESET_PASSQ() subcommand
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    return BQ76907_OK;
+}   
+
+/** 
+ * @brief Lookup the state of charge (SOC) from the pack voltage
+ * @param voltage Pack voltage (in volts)
+ * @return State of charge (0.0 to 100.0)
+ */
+static inline float lookupSOCFromOCV(float voltage){
+    return ((voltage - 18.0f) / (25.2f - 18.0f)) * 100.0f;
+}
+
+/**
+ * @brief Calculate the initial state of charge (SOC)
+ * @param soc Pointer to store the state of charge
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+static inline ErrorCode_t BQ76907_CalculateInitialSoC(float *soc){
+    float packVoltage;
+    ErrorCode_t errorCode = BQ76907_ReadPackVoltage(&packVoltage);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    *soc = lookupSOCFromOCV(packVoltage);
+
+    // Check if the calculated SOC is out of range
+    if(*soc < 0.0f) *soc = 0.0f;
+    if(*soc > 100.0f) *soc = 100.0f;
+
+    // Reset the pass Q
+    errorCode = BQ76907_ResetPassQ();
+    if(errorCode != BQ76907_OK) return errorCode;
+    
+    return BQ76907_OK;
+}   
+
+/**
+ * @brief Update SOC using coulomb counting (PASSQ)
+ * @param socInit Initial SOC (in percent, from voltage)
+ * @param socPercent Pointer to store the updated SOC in percent
+ * @return ErrorCode_t
+ */
+static inline ErrorCode_t BQ76907_UpdateSoCWithPassQ(float socInit, float *socPercent){
+    int64_t passQ;
+    float elapsedTime;
+    ErrorCode_t errorCode = BQ76907_ReadPassQ(&passQ, &elapsedTime);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    // Convert passQ mA-seconds to mAh
+    float QmAh = (float)passQ / 3600.0f;
+
+    // Update SOC (in percent)
+    *socPercent = socInit - (QmAh / BATTERY_CAPACITY_MAH) * 100.0f;
+
+    // Clamp to 0–100%
+    if(*socPercent > 100.0f) *socPercent = 100.0f;
+    if(*socPercent < 0.0f) *socPercent = 0.0f;
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Initialize the state of charge (SOC)
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+ErrorCode_t BQ76907_SoCInit(void){
+    ErrorCode_t errorCode = BQ76907_CalculateInitialSoC(&SoCInit);
+    if(errorCode != BQ76907_OK) return errorCode;
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Update the state of charge (SOC)
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+ErrorCode_t BQ76907_SoCUpdate(void){
+    ErrorCode_t errorCode = BQ76907_UpdateSoCWithPassQ(SoCInit, &SoC);
+    if(errorCode != BQ76907_OK) return errorCode;
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Get the state of charge (SOC)
+ * @return float (state of charge)
+ */
+float BQ76907_SoCGet(void){
+    return SoC;
 }
 

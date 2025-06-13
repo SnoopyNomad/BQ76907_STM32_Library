@@ -109,7 +109,6 @@ ErrorCode_t BQ76907_CHGFETOff(void);
  * @return ErrorCode_t (BQ76907_OK on success)
  */
 ErrorCode_t BQ76907_ReadCellVoltages(uint16_t *voltages);
-
 /**
  * @brief Read the battery temperature
  * @param temp Pointer to array to store the temperature
@@ -183,6 +182,24 @@ ErrorCode_t BQ76907_BalanceMinMaxCells(uint16_t cellVoltages[6]);
  * @return ErrorCode_t (BQ76907_OK on success)
  */
 ErrorCode_t BQ76907_ReadCBActiveCells(uint8_t *activeCells);
+
+/**
+ * @brief Initialize the state of charge (SOC)
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+ErrorCode_t BQ76907_SoCInit(void);
+
+/**
+ * @brief Update the state of charge (SOC)
+ * @return ErrorCode_t (BQ76907_OK on success)
+ */
+ErrorCode_t BQ76907_SoCUpdate(void);
+
+/**
+ * @brief Get the state of charge (SOC)
+ * @return float (state of charge)
+ */
+float BQ76907_SoCGet(void);
 
 #ifdef __cplusplus
 }
