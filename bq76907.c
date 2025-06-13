@@ -1,8 +1,9 @@
 /**
  * @file bq76907.c
- * @brief BQ76907 battery management system IC driver implementation
- * @details This file contains the implementation of the BQ76907 battery management system IC driver,
- *          supporting various battery protection features and configuration options.
+ * @brief BQ76907 battery management system driver
+ * @details This file contains the implementation of the
+ *          BQ76907 battery management system driver, supporting various
+ *          operations.
  * @author Cengiz Sinan Kostakoglu
  * @version 1.0
  * @date 2025-06-13
@@ -40,14 +41,15 @@
 static float SoC = 100.0f;
 static float SoCInit = 100.0f;
 
+/* I2C Handle */
 extern I2C_HandleTypeDef hi2c1;
 
 /**
  * @brief Map HAL error codes to BQ76907 error codes
  * @param status HAL error code
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_MapError(HAL_StatusTypeDef status){
+static inline BQ76907_ErrorCode_t BQ76907_MapError(HAL_StatusTypeDef status){
     if(status == HAL_OK) return BQ76907_OK;
     else if(status == HAL_ERROR) return BQ76907_ERROR_I2C;
     else if(status == HAL_BUSY) return BQ76907_ERROR_BUSY;
@@ -59,9 +61,9 @@ static inline ErrorCode_t BQ76907_MapError(HAL_StatusTypeDef status){
  * @param reg Register address to write to
  * @param data Pointer to data buffer to write from
  * @param length Number of bytes to write
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_WriteRegister(uint8_t reg, uint8_t *data, uint8_t length){
+static inline BQ76907_ErrorCode_t BQ76907_WriteRegister(uint8_t reg, uint8_t *data, uint8_t length){
     return BQ76907_MapError(HAL_I2C_Mem_Write(&hi2c1, (BQ76907_ADDR << 1), reg, I2C_MEMADD_SIZE_8BIT, data, length, HAL_MAX_DELAY));
 }
 
@@ -70,19 +72,19 @@ static inline ErrorCode_t BQ76907_WriteRegister(uint8_t reg, uint8_t *data, uint
  * @param reg Register address to read from
  * @param data Pointer to data buffer to read into
  * @param length Number of bytes to read
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ReadRegister(uint8_t reg, uint8_t *data, uint8_t length){
+static inline BQ76907_ErrorCode_t BQ76907_ReadRegister(uint8_t reg, uint8_t *data, uint8_t length){
     return BQ76907_MapError(HAL_I2C_Mem_Read(&hi2c1, (BQ76907_ADDR << 1), reg, I2C_MEMADD_SIZE_8BIT, data, length, HAL_MAX_DELAY));
 }
 
 /**
  * @brief Read the battery status from the BQ76907
  * @param status Pointer to 2-byte array to store the status (status[0] = status, status[1] = flags)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadBatteryStatus(uint16_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadBatteryStatus(uint16_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     errorCode = BQ76907_ReadRegister(BATTERY_STATUS, (uint8_t*)status, 2);
     if(errorCode != BQ76907_OK) return errorCode;
 
@@ -92,10 +94,10 @@ ErrorCode_t BQ76907_ReadBatteryStatus(uint16_t *status){
 /**
  * @brief Read the security keys from the BQ76907
  * @param keys Pointer to 4-byte array to store the keys (keys[0,1] = key1 LSB,MSB, keys[2,3] = key2 LSB,MSB)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadKeys(uint8_t *keys) {
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadKeys(uint8_t *keys) {
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x35, 0x00}; // SECURITY_KEYS subcommand
 
     // 1. Write 0x35 to 0x3E
@@ -117,10 +119,10 @@ ErrorCode_t BQ76907_ReadKeys(uint8_t *keys) {
 /**
  * @brief Write the security keys to the BQ76907
  * @param keys Pointer to 4-byte array containing the keys (keys[0,1] = key1 LSB,MSB, keys[2,3] = key2 LSB,MSB)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_WriteKeys(uint8_t *keys){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_WriteKeys(uint8_t *keys){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x35, 0x00}; // SECURITY_KEYS subcommand
 
     // 1. Write 0x35 to 0x3E
@@ -140,10 +142,10 @@ ErrorCode_t BQ76907_WriteKeys(uint8_t *keys){
 
 /**
  * @brief Seal the BQ76907 (return to protected mode)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_Seal(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_Seal(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x30, 0x00}; // SEAL() subcommand
 
     // 1. Write 0x30 to 0x3E
@@ -162,10 +164,10 @@ static inline ErrorCode_t BQ76907_Seal(void){
  * @brief Unseal the BQ76907 with keys (exit protected mode) using the legacy method
  * @param key1 16-bit key1
  * @param key2 16-bit key2
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_Unseal(uint16_t key1, uint16_t key2) {
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_Unseal(uint16_t key1, uint16_t key2) {
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t keyBytes[2];
 
     // Write key1 (LSB to 0x3E, MSB to 0x3F)
@@ -189,10 +191,10 @@ static inline ErrorCode_t BQ76907_Unseal(uint16_t key1, uint16_t key2) {
 
 /**
  * @brief Reset the BQ76907
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_Reset(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_Reset(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x12, 0x00}; // RESET() subcommand
 
     // 1. Write 0x12 to 0x3E    
@@ -211,10 +213,10 @@ ErrorCode_t BQ76907_Reset(void){
 
 /**
  * @brief Set the BQ76907 to allow configuration updates
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_SetCFGUpdate(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_SetCFGUpdate(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x90, 0x00}; // SET_CFGUPDATE() subcommand
 
     // 1. Write 0x90 to 0x3E
@@ -237,13 +239,13 @@ static inline ErrorCode_t BQ76907_SetCFGUpdate(void){
 
 /**
  * @brief Exit configuration update mode
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ExitCFGUpdate(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_ExitCFGUpdate(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x92, 0x00}; // EXIT_CFGUPDATE() subcommand
     
-    // 1. Write 0x91 to 0x3E
+    // 1. Write 0x91 to 0x3E    
     errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
     if(errorCode != BQ76907_OK) return errorCode;
 
@@ -262,10 +264,10 @@ static inline ErrorCode_t BQ76907_ExitCFGUpdate(void){
 
 /**
  * @brief Disable sleep mode
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_SleepDisable(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_SleepDisable(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x9A, 0x00}; // SLEEP_DISABLE() subcommand
     
     // 1. Write 0x9A to 0x3E
@@ -281,10 +283,10 @@ static inline ErrorCode_t BQ76907_SleepDisable(void){
 
 /**
  * @brief Disable sleep mode
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ConfigureSleep(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_ConfigureSleep(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x14, 0x90};
     uint8_t data = 0x00;
 
@@ -300,10 +302,10 @@ static inline ErrorCode_t BQ76907_ConfigureSleep(void){
 
 /**
  * @brief Enter deep sleep mode
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_EnterDeepSleep(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_EnterDeepSleep(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x0F, 0x00}; // DEEPSLEEP() subcommand
 
     errorCode = BQ76907_WriteRegister(0x3E, &subCmd[0], 1);
@@ -323,10 +325,10 @@ ErrorCode_t BQ76907_EnterDeepSleep(void){
 
 /**
  * @brief Exit deep sleep mode
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ExitDeepSleep(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ExitDeepSleep(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x0E, 0x00}; // EXIT_DEEPSLEEP() subcommand
 
     errorCode = BQ76907_WriteRegister(0x3E, &subCmd[0], 1);
@@ -339,10 +341,10 @@ ErrorCode_t BQ76907_ExitDeepSleep(void){
 
 /**
  * @brief Configure the FET options
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ConfigureFETOptions(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_ConfigureFETOptions(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x1E, 0x90};
     uint8_t value = 0x6C;
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -364,10 +366,10 @@ static inline ErrorCode_t BQ76907_ConfigureFETOptions(void){
 
 /**
  * @brief Set the OCC threshold
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_SetOCCThreshold(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_SetOCCThreshold(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x36, 0x90};
     uint8_t value = 0x02; // 4 A
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -389,10 +391,10 @@ static inline ErrorCode_t BQ76907_SetOCCThreshold(void){
 
 /**
  * @brief Set the OCD1 threshold
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_SetOCD1Threshold(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_SetOCD1Threshold(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x38, 0x90};
     uint8_t value = 0x0C; // 24 A 0x0C
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -414,10 +416,10 @@ static inline ErrorCode_t BQ76907_SetOCD1Threshold(void){
 
 /**
  * @brief Set the OCD2 threshold
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_SetOCD2Threshold(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_SetOCD2Threshold(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x3A, 0x90};
     uint8_t value = 0x0C; // 24 A
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -439,10 +441,10 @@ static inline ErrorCode_t BQ76907_SetOCD2Threshold(void){
 
 /**
  * @brief Enable the thermistor pullup and configure REGOUT_CONTROL
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_EnableThermistorPullup(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_EnableThermistorPullup(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t value = 0x1E;
 
     errorCode = BQ76907_WriteRegister(REGOUT_CONTROL, &value, 1);
@@ -451,8 +453,12 @@ ErrorCode_t BQ76907_EnableThermistorPullup(void){
     return BQ76907_OK;
 }
 
-static inline ErrorCode_t BQ76907_SetCUVThreshold(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+/**
+ * @brief Set the CUV threshold
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+static inline BQ76907_ErrorCode_t BQ76907_SetCUVThreshold(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x2E, 0x90};
     uint16_t value = 3000;   
     uint8_t data[2];
@@ -475,8 +481,13 @@ static inline ErrorCode_t BQ76907_SetCUVThreshold(void){
     return BQ76907_OK;
 }
 
-ErrorCode_t BQ76907_ReadCUVThreshold(uint16_t *value){
-    ErrorCode_t errorCode = BQ76907_OK;
+/**
+ * @brief Read the CUV threshold
+ * @param value Pointer to array to store the value
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_ReadCUVThreshold(uint16_t *value){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x2E, 0x90};
     uint8_t data[2];
     uint8_t checksum = ~(data[0] + data[1]);
@@ -498,8 +509,12 @@ ErrorCode_t BQ76907_ReadCUVThreshold(uint16_t *value){
     return BQ76907_OK;
 }
 
-static inline ErrorCode_t BQ76907_SetCUVRecoveryHysterisis(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+/**
+ * @brief Set the CUV recovery hysterisis
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+static inline BQ76907_ErrorCode_t BQ76907_SetCUVRecoveryHysterisis(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x31, 0x90};
     uint8_t data = 0x01;
     uint8_t checksum = ~(data);
@@ -519,8 +534,13 @@ static inline ErrorCode_t BQ76907_SetCUVRecoveryHysterisis(void){
     return BQ76907_OK;
 }
 
-ErrorCode_t BQ76907_ReadCUVRecoveryHysterisis(uint8_t *value){
-    ErrorCode_t errorCode = BQ76907_OK;
+/**
+ * @brief Read the CUV recovery hysterisis
+ * @param value Pointer to array to store the value
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_ReadCUVRecoveryHysterisis(uint8_t *value){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x31, 0x90};
 
     errorCode = BQ76907_WriteRegister(0x3E, &addr[0], 1);
@@ -535,10 +555,10 @@ ErrorCode_t BQ76907_ReadCUVRecoveryHysterisis(uint8_t *value){
 
 /**
  * @brief Enable protections A
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_EnableProtectionsA(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_EnableProtectionsA(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x24, 0x90};
     uint8_t value = 0xFC;
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -560,10 +580,10 @@ static inline ErrorCode_t BQ76907_EnableProtectionsA(void){
 
 /**
  * @brief Enable protections B
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_EnableProtectionsB(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_EnableProtectionsB(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr[2] = {0x25, 0x90};
     uint8_t value = 0x3E;
     uint8_t checksum = ~(addr[0] + addr[1] + value);
@@ -585,10 +605,10 @@ static inline ErrorCode_t BQ76907_EnableProtectionsB(void){
 
 /**
  * @brief Initialize the BQ76907
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_Init(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_Init(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     errorCode = BQ76907_ExitDeepSleep();
     if(errorCode != BQ76907_OK) return errorCode;
     errorCode = BQ76907_Reset();
@@ -629,10 +649,10 @@ ErrorCode_t BQ76907_Init(void){
 
 /**
  * @brief Turn off the DSG FET
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_DSGFETOff(void){
-    ErrorCode_t errorCode = BQ76907_OK; 
+BQ76907_ErrorCode_t BQ76907_DSGFETOff(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK; 
     uint8_t data = 0x04; // DSG_OFF
 
     errorCode = BQ76907_WriteRegister(FET_CONTROL, &data, 1);
@@ -643,10 +663,10 @@ ErrorCode_t BQ76907_DSGFETOff(void){
 
 /**
  * @brief Turn off the CHG FET
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_CHGFETOff(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_CHGFETOff(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t data = 0x08; // CHG_OFF
 
     errorCode = BQ76907_WriteRegister(FET_CONTROL, &data, 1);
@@ -658,10 +678,10 @@ ErrorCode_t BQ76907_CHGFETOff(void){
 
 /**
  * @brief Turn on the DSG FET
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_DSGFETOn(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_DSGFETOn(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t data = 0x01; // DSG_ON
 
     errorCode = BQ76907_WriteRegister(FET_CONTROL, &data, 1);
@@ -672,10 +692,10 @@ ErrorCode_t BQ76907_DSGFETOn(void){
 
 /**
  * @brief Turn on the CHG FET
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_CHGFETOn(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_CHGFETOn(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t data = 0x02; // CHG_ON
 
     errorCode = BQ76907_WriteRegister(FET_CONTROL, &data, 1);
@@ -687,10 +707,10 @@ ErrorCode_t BQ76907_CHGFETOn(void){
 /**
  * @brief Read the cell voltages
  * @param voltages Pointer to array to store the voltages
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadCellVoltages(uint16_t *voltages){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadCellVoltages(uint16_t *voltages){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(CELL_1_VOLTAGE, (uint8_t*)voltages, NUM_CELLS * 2);
     if(errorCode != BQ76907_OK) return errorCode;
@@ -722,10 +742,10 @@ static inline float TSADCtoTemperature(uint16_t adcCode){
 /**
  * @brief Read the battery temperature
  * @param temp Pointer to array to store the temperature
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadBatteryTemperature(float *temp){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadBatteryTemperature(float *temp){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint16_t adcCode;
 
     errorCode = BQ76907_ReadRegister(TS_MEASUREMENT, (uint8_t*)&adcCode, 2);
@@ -738,10 +758,10 @@ ErrorCode_t BQ76907_ReadBatteryTemperature(float *temp){
 
 /**
  * @brief Enable alarms
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_EnableAlarms(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_EnableAlarms(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint16_t data = 0xF000;
 
     errorCode = BQ76907_WriteRegister(ALARM_ENABLE, (uint8_t*)&data, 2);
@@ -753,10 +773,10 @@ ErrorCode_t BQ76907_EnableAlarms(void){
 /**
  * @brief Read the alarm status
  * @param status Pointer to array to store the status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */ 
-ErrorCode_t BQ76907_ReadAlarmStatus(uint16_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadAlarmStatus(uint16_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(ALARM_STATUS, (uint8_t*)status, 2);
     if(errorCode != BQ76907_OK) return errorCode;
@@ -766,10 +786,10 @@ ErrorCode_t BQ76907_ReadAlarmStatus(uint16_t *status){
 
 /**
  * @brief Clear the alarm status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ClearAlarmStatus(uint16_t status){
-    ErrorCode_t errorCode = BQ76907_OK; 
+BQ76907_ErrorCode_t BQ76907_ClearAlarmStatus(uint16_t status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK; 
     uint16_t data = status;
 
     errorCode = BQ76907_WriteRegister(ALARM_STATUS, (uint8_t*)&data, 2);
@@ -781,10 +801,10 @@ ErrorCode_t BQ76907_ClearAlarmStatus(uint16_t status){
 /**
  * @brief Read the safety status A register
  * @param status Pointer to array to store the status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */ 
-ErrorCode_t BQ76907_ReadSafetyStatusA(uint8_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadSafetyStatusA(uint8_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(SAFETY_STATUS_A, status, 1);
     if(errorCode != BQ76907_OK) return errorCode;
@@ -795,10 +815,10 @@ ErrorCode_t BQ76907_ReadSafetyStatusA(uint8_t *status){
 /**
  * @brief Read the safety status B register
  * @param status Pointer to array to store the status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */ 
-ErrorCode_t BQ76907_ReadSafetyStatusB(uint8_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadSafetyStatusB(uint8_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(SAFETY_STATUS_B, status, 1);
     if(errorCode != BQ76907_OK) return errorCode;
@@ -809,10 +829,10 @@ ErrorCode_t BQ76907_ReadSafetyStatusB(uint8_t *status){
 /**
  * @brief Read the safety alert A register
  * @param status Pointer to array to store the status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */     
-ErrorCode_t BQ76907_ReadSafetyAlertA(uint8_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadSafetyAlertA(uint8_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(SAFETY_ALERT_A, status, 1);
     if(errorCode != BQ76907_OK) return errorCode;   
@@ -823,10 +843,10 @@ ErrorCode_t BQ76907_ReadSafetyAlertA(uint8_t *status){
 /**
  * @brief Read the safety alert B register
  * @param status Pointer to array to store the status
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadSafetyAlertB(uint8_t *status){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadSafetyAlertB(uint8_t *status){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
 
     errorCode = BQ76907_ReadRegister(SAFETY_ALERT_B, status, 1);
     if(errorCode != BQ76907_OK) return errorCode;
@@ -836,10 +856,10 @@ ErrorCode_t BQ76907_ReadSafetyAlertB(uint8_t *status){
 
 /**
  * @brief Enable cell balance
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_CellBalance(uint8_t activeCells){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_CellBalance(uint8_t activeCells){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x83, 0x00}; // CB_ACTIVE_CELLS() subcommand
 
     errorCode = BQ76907_WriteRegister(0x3E, &subCmd[0], 1);
@@ -855,9 +875,9 @@ ErrorCode_t BQ76907_CellBalance(uint8_t activeCells){
 /**
  * @brief Balance the minimum and maximum cells
  * @param cellVoltages Pointer to array to store the cell voltages
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_BalanceMinMaxCells(uint16_t cellVoltages[6]){
+BQ76907_ErrorCode_t BQ76907_BalanceMinMaxCells(uint16_t cellVoltages[6]){
     uint8_t minIndex = 0, maxIndex = 0;
     for (uint8_t i = 1; i < NUM_CELLS; i++){
         if(cellVoltages[i] < cellVoltages[minIndex]) minIndex = i;
@@ -874,10 +894,10 @@ ErrorCode_t BQ76907_BalanceMinMaxCells(uint16_t cellVoltages[6]){
 /**
  * @brief Read the active cells
  * @param activeCells Pointer to array to store the active cells
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_ReadCBActiveCells(uint8_t *activeCells){
-    ErrorCode_t errorCode = BQ76907_OK;
+BQ76907_ErrorCode_t BQ76907_ReadCBActiveCells(uint8_t *activeCells){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subCmd[2] = {0x83, 0x00}; // CB_ACTIVE_CELLS() subcommand
 
     errorCode = BQ76907_WriteRegister(0x3E, &subCmd[0], 1);
@@ -893,11 +913,11 @@ ErrorCode_t BQ76907_ReadCBActiveCells(uint8_t *activeCells){
 /**
  * @brief Reads all cell voltages and returns the pack voltage.
  * @param packVoltage Pointer to store the total pack voltage (in volts)
- * @return ErrorCode_t
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ReadPackVoltage(float *packVoltage){
+static inline BQ76907_ErrorCode_t BQ76907_ReadPackVoltage(float *packVoltage){
     uint16_t cellVoltages[NUM_CELLS];
-    ErrorCode_t errorCode = BQ76907_ReadCellVoltages(cellVoltages);
+    BQ76907_ErrorCode_t errorCode = BQ76907_ReadCellVoltages(cellVoltages);
     if(errorCode != BQ76907_OK) return errorCode;
   
     float sum = 0.0f;
@@ -914,10 +934,10 @@ static inline ErrorCode_t BQ76907_ReadPackVoltage(float *packVoltage){
  * @brief Read the pass Q and elapsed time
  * @param passQ Pointer to store the pass Q
  * @param elapsedTime Pointer to store the elapsed time
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ReadPassQ(int64_t *passQ, float *elapsedTime){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_ReadPassQ(int64_t *passQ, float *elapsedTime){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x04, 0x00}; // PASSQ() subcommand
     uint8_t data[12];
 
@@ -947,10 +967,10 @@ static inline ErrorCode_t BQ76907_ReadPassQ(int64_t *passQ, float *elapsedTime){
 
 /**
  * @brief Resets the charge integrator and timer.
- * @return ErrorCode_t
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_ResetPassQ(void){
-    ErrorCode_t errorCode = BQ76907_OK;
+static inline BQ76907_ErrorCode_t BQ76907_ResetPassQ(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t subcmd[2] = {0x05, 0x00}; // RESET_PASSQ() subcommand
 
     errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
@@ -973,11 +993,11 @@ static inline float lookupSOCFromOCV(float voltage){
 /**
  * @brief Calculate the initial state of charge (SOC)
  * @param soc Pointer to store the state of charge
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_CalculateInitialSoC(float *soc){
+static inline BQ76907_ErrorCode_t BQ76907_CalculateInitialSoC(float *soc){
     float packVoltage;
-    ErrorCode_t errorCode = BQ76907_ReadPackVoltage(&packVoltage);
+    BQ76907_ErrorCode_t errorCode = BQ76907_ReadPackVoltage(&packVoltage);
     if(errorCode != BQ76907_OK) return errorCode;
 
     *soc = lookupSOCFromOCV(packVoltage);
@@ -997,12 +1017,12 @@ static inline ErrorCode_t BQ76907_CalculateInitialSoC(float *soc){
  * @brief Update SOC using coulomb counting (PASSQ)
  * @param socInit Initial SOC (in percent, from voltage)
  * @param socPercent Pointer to store the updated SOC in percent
- * @return ErrorCode_t
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-static inline ErrorCode_t BQ76907_UpdateSoCWithPassQ(float socInit, float *socPercent){
+static inline BQ76907_ErrorCode_t BQ76907_UpdateSoCWithPassQ(float socInit, float *socPercent){
     int64_t passQ;
     float elapsedTime;
-    ErrorCode_t errorCode = BQ76907_ReadPassQ(&passQ, &elapsedTime);
+    BQ76907_ErrorCode_t errorCode = BQ76907_ReadPassQ(&passQ, &elapsedTime);
     if(errorCode != BQ76907_OK) return errorCode;
 
     // Convert passQ mA-seconds to mAh
@@ -1020,20 +1040,20 @@ static inline ErrorCode_t BQ76907_UpdateSoCWithPassQ(float socInit, float *socPe
 
 /**
  * @brief Initialize the state of charge (SOC)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_SoCInit(void){
-    ErrorCode_t errorCode = BQ76907_CalculateInitialSoC(&SoCInit);
+BQ76907_ErrorCode_t BQ76907_SoCInit(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_CalculateInitialSoC(&SoCInit);
     if(errorCode != BQ76907_OK) return errorCode;
     return BQ76907_OK;
 }
 
 /**
  * @brief Update the state of charge (SOC)
- * @return ErrorCode_t (BQ76907_OK on success)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
-ErrorCode_t BQ76907_SoCUpdate(void){
-    ErrorCode_t errorCode = BQ76907_UpdateSoCWithPassQ(SoCInit, &SoC);
+BQ76907_ErrorCode_t BQ76907_SoCUpdate(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_UpdateSoCWithPassQ(SoCInit, &SoC);
     if(errorCode != BQ76907_OK) return errorCode;
     return BQ76907_OK;
 }
@@ -1044,5 +1064,91 @@ ErrorCode_t BQ76907_SoCUpdate(void){
  */
 float BQ76907_SoCGet(void){
     return SoC;
+}
+
+/**
+ * @brief Handle the alarms
+ * @return BQ76907_ErrorCode_t
+ */
+BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
+	uint8_t data;
+    uint16_t alarms;
+	BQ76907_ErrorCode_t errorCode = BQ76907_ReadAlarmStatus(&alarms);
+	if(errorCode != BQ76907_OK){
+		return errorCode;
+	}
+
+	if(alarms & 0x1000){
+		errorCode = BQ76907_ReadSafetyAlertB(&data);
+		if(errorCode != BQ76907_OK){
+			return errorCode;
+		}
+		errorCode = BQ76907_ClearAlarmStatus(0x1000);
+		if(errorCode != BQ76907_OK){
+			return errorCode;
+		}
+		switch(data){
+			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
+			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
+			case 0x20: return BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE;
+			case 0x40: return BQ76907_ERROR_OVERTEMPERATURE_CHARGE;
+			case 0x80: return BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE;
+		}
+	}
+	if(alarms & 0x2000){
+		errorCode = BQ76907_ReadSafetyAlertA(&data);
+		if(errorCode != BQ76907_OK) {
+			return errorCode;
+		}
+		errorCode = BQ76907_ClearAlarmStatus(0x2000);
+		if(errorCode != BQ76907_OK){
+			return errorCode;
+		}
+		switch(data){
+			case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
+			case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
+			case 0x10: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_1;
+			case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
+			case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
+			case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
+	  }
+	}
+	if(alarms & 0x4000){
+		errorCode = BQ76907_ReadSafetyStatusB(&data);
+		if(errorCode != BQ76907_OK) {
+			return errorCode;
+		}
+		errorCode = BQ76907_ClearAlarmStatus(0x4000);
+		if(errorCode != BQ76907_OK){
+			return errorCode;
+		}
+		switch(data){
+			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
+			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
+			case 0x20: return BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE;
+			case 0x40: return BQ76907_ERROR_OVERTEMPERATURE_CHARGE;
+			case 0x80: return BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE;
+		}
+	}
+	if(alarms & 0x8000){
+		errorCode = BQ76907_ReadSafetyStatusA(&data);
+		if(errorCode != BQ76907_OK) {
+			return errorCode;
+		}
+		errorCode = BQ76907_ClearAlarmStatus(0x8000);
+		if(errorCode != BQ76907_OK){
+			return errorCode;
+		}
+        switch(data){
+    	    case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
+    	    case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
+    	    case 0x10: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_1;
+    	    case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
+    	    case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
+    	    case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
+        }
+	}
+
+	return errorCode;
 }
 

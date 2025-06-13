@@ -12,7 +12,7 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
   - [Reading Battery Data](#reading-battery-data)
   - [State of Charge](#state-of-charge)
   - [Cell Balancing](#cell-balancing)
-  - [Safety Features](#safety-features)
+  - [Manual FET Control](#manual-fet-control)
 - [Error Handling](#error-handling)
 - [Contributing](#contributing)
 - [License](#license)
@@ -30,7 +30,7 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
   - Over-Current (OC) protection
   - Short-Circuit protection
   - Temperature monitoring
-- FET control for charge/discharge
+- Manual FET control for charge/discharge
 - Deep sleep mode support
 - Alarm and status monitoring
 - Compatible with STM32 HAL drivers
@@ -46,19 +46,19 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
 ## Installation
 
 1. Clone this repository into your project directory:  
-   ```bash
-   git clone https://github.com/SnoopyNomad/BQ76907_STM32_Library.git
-   ```
+```bash
+git clone https://github.com/SnoopyNomad/BQ76907_STM32_Library.git
+```
 
 2. Copy the following files into your project:
    - `bq76907.c` → Your project's source folder
    - `bq76907.h` → Your project's include folder
 
 3. Configure your pin definitions in `main.h`:
-   ```c
-   #define BQ76907_INT_Pin        GPIO_PIN_0
-   #define BQ76907_INT_GPIO_Port  GPIOA
-   ```
+```c
+#define BQ76907_ALERT_Pin        GPIO_PIN_0
+#define BQ76907_ALERT_GPIO_Port  GPIOA
+```
 
 ## Configuration
 
@@ -79,7 +79,7 @@ The library is configured with the following default settings:
 
 1. Configure I²C in your STM32 project:
 ```c
-// In your main.c or system initialization
+/* In your main.c or system initialization */
 I2C_HandleTypeDef hi2c1;
 
 void SystemClock_Config(void);
@@ -90,7 +90,7 @@ int main(void)
     HAL_Init();
     SystemClock_Config();
     MX_I2C1_Init();
-    // ... rest of your initialization code
+   /* ... rest of your initialization code */
 }
 ```
 
@@ -116,20 +116,20 @@ typedef enum{
   BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE = 11,
   BQ76907_ERROR_CELL_UNDERVOLTAGE = 12,
   BQ76907_ERROR_CELL_OVERVOLTAGE = 13
-} ErrorCode_t;
+} BQ76907_ErrorCode_t;
 
-ErrorCode_t errorCode;
+BQ76907_ErrorCode_t errorCode;
 
 // Basic initialization
 errorCode = BQ76907_Init();
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+	/* Your error handling code here */
 }
 
 // Enable alarms
 errorCode = BQ76907_EnableAlarms();
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 ```
 
@@ -139,54 +139,74 @@ if(errorCode != BQ76907_OK){
 uint16_t cellVoltages[6];
 float temperature;
 uint16_t alarmStatus;
-uint8_t safetyStatusA, safetyStatusB;
 float soc;
 
 // Read cell voltages
 errorCode = BQ76907_ReadCellVoltages(cellVoltages);
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 
 // Read temperature
 errorCode = BQ76907_ReadBatteryTemperature(&temperature);
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 
 // Read alarm status
 errorCode = BQ76907_ReadAlarmStatus(&alarmStatus);
 if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
-
-// Read safety status
-errorCode = BQ76907_ReadSafetyStatusA(&safetyStatusA);
-errorCode = BQ76907_ReadSafetyStatusB(&safetyStatusB);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 ```
 
 ### State of Charge
 
-The library provides basic State of Charge (SoC) tracking functionality.
+The library provides State of Charge (SoC) tracking functionality using a combination of voltage-based initialization and coulomb counting for continuous tracking.
+
+#### SoC Initialization
+The initial SoC is calculated based on the battery pack voltage using a linear interpolation between the minimum (18.0V) and maximum (25.2V) voltage points. This provides a good starting point for SoC tracking.
 
 ```c
-// Initialize SoC
+// Initialize SoC based on pack voltage
 errorCode = BQ76907_SoCInit();
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
+```
 
+#### SoC Tracking
+After initialization, the SoC is continuously updated using coulomb counting (PASSQ) to track the actual charge/discharge cycles. The library maintains an internal SoC value that is updated based on the integrated current over time.
+
+```c
+// Update SoC periodically (e.g., in your main loop)
 while(1){
     errorCode = BQ76907_SoCUpdate();
     if(errorCode != BQ76907_OK){
-        Error_Handler();
+        /* Your error handling code here */
     }
-    soc = BQ76907_GetSoC();
+    
+    // Get current SoC value (0.0 to 100.0)
+    float soc = BQ76907_SoCGet();
+    
+    // Optional: Handle SoC-based actions
+    if(soc < 20.0f){
+        // Low battery warning
+    }
 }
 ```
+
+#### SoC Features
+- Initial SoC estimation based on pack voltage
+- Continuous tracking using coulomb counting
+- Automatic reset of charge integrator during initialization
+- SoC range: 0.0% to 100.0%
+- Battery capacity: 2800 mAh (configurable in code)
+
+Note: For accurate SoC tracking, ensure that:
+1. The battery is at rest during initialization
+2. The SoC update function is called regularly
+3. The battery capacity matches your actual battery pack
 
 ### Cell Balancing
 
@@ -194,18 +214,18 @@ while(1){
 // Balance cells with minimum and maximum voltages
 errorCode = BQ76907_BalanceMinMaxCells(cellVoltages);
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 
 // Read active balancing cells
 uint8_t activeCells;
 errorCode = BQ76907_ReadCBActiveCells(&activeCells);
 if(errorCode != BQ76907_OK){
-    Error_Handler();
+    /* Your error handling code here */
 }
 ```
 
-### Safety Features
+### Manual FET Control
 
 ```c
 // Enable/disable charge FET
@@ -215,15 +235,11 @@ errorCode = BQ76907_CHGFETOff(); // Disable charging
 // Enable/disable discharge FET
 errorCode = BQ76907_DSGFETOn();  // Enable discharging
 errorCode = BQ76907_DSGFETOff(); // Disable discharging
-
-// Enter/exit deep sleep mode
-errorCode = BQ76907_EnterDeepSleep();
-errorCode = BQ76907_ExitDeepSleep();
 ```
 
 ## Error Handling
 
-All functions return `ErrorCode_t`:
+All functions return `BQ76907_ErrorCode_t`:
 ```c
 typedef enum {
     BQ76907_OK = 0,                           // Operation successful
@@ -240,103 +256,7 @@ typedef enum {
     BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE = 11, // Short circuit detected during discharge
     BQ76907_ERROR_CELL_UNDERVOLTAGE = 12,     // Cell voltage below minimum threshold
     BQ76907_ERROR_CELL_OVERVOLTAGE = 13       // Cell voltage above maximum threshold
-} ErrorCode_t;
-
-ErrorCode_t HandleBQ76907Alarms(void){
-	ErrorCode_t errorCode = BQ76907_OK;
-	uint8_t data;
-
-	errorCode = BQ76907_ReadAlarmStatus(&alarms);
-	if(errorCode != BQ76907_OK){
-		LEDOn();
-		return errorCode;
-	}
-
-	if(alarms & 0x1000){
-		LEDOn();
-		errorCode = BQ76907_ReadSafetyAlertB(&data);
-		if(errorCode != BQ76907_OK){
-			LEDOn();
-			return errorCode;
-		}
-		errorCode = BQ76907_ClearAlarmStatus(0x1000);
-		if(errorCode != BQ76907_OK){
-			LEDOn();
-			return errorCode;
-		}
-		switch(data){
-			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
-			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
-			case 0x20: return BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE;
-			case 0x40: return BQ76907_ERROR_OVERTEMPERATURE_CHARGE;
-			case 0x80: return BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE;
-		}
-	}
-	if(alarms & 0x2000){
-		LEDOn();
-		errorCode = BQ76907_ReadSafetyAlertA(&data);
-		if(errorCode != BQ76907_OK) {
-			LEDOn();
-			return errorCode;
-		}
-		errorCode = BQ76907_ClearAlarmStatus(0x2000);
-		if(errorCode != BQ76907_OK){
-			LEDOn();
-			return errorCode;
-		}
-		switch(data){
-			case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
-			case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
-			case 0x10: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_1;
-			case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
-			case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
-			case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
-	  }
-	}
-	if(alarms & 0x4000){
-		LEDOn();
-		errorCode = BQ76907_ReadSafetyStatusB(&data);
-		if(errorCode != BQ76907_OK) {
-			LEDOn();
-			return errorCode;
-		}
-		errorCode = BQ76907_ClearAlarmStatus(0x4000);
-		if(errorCode != BQ76907_OK){
-			LEDOn();
-			return errorCode;
-		}
-    	switch(data){
-			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
-			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
-			case 0x20: return BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE;
-			case 0x40: return BQ76907_ERROR_OVERTEMPERATURE_CHARGE;
-			case 0x80: return BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE;
-		}
-	}
-	if(alarms & 0x8000){
-		LEDOn();
-		errorCode = BQ76907_ReadSafetyStatusA(&data);
-		if(errorCode != BQ76907_OK) {
-			LEDOn();
-			return errorCode;
-		}
-		errorCode = BQ76907_ClearAlarmStatus(0x8000);
-		if(errorCode != BQ76907_OK){
-			LEDOn();
-			return errorCode;
-		}
-    	switch(data){
-    		case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
-    		case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
-    		case 0x10: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_1;
-    		case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
-    		case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
-    		case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
-    	}
-	}
-
-	return BQ76907_OK;
-}
+} BQ76907_ErrorCode_t;
 ```
 
 Common error scenarios:
