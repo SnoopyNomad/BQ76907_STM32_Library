@@ -23,10 +23,11 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
 - Initialize and configure BQ76907 via I²C
 - Monitor up to 6 cell voltages
 - Temperature monitoring with NTC thermistor support (returns `int8_t` Celsius)
-- Security key read/write (16-bit keys)
+- Security key read (16-bit keys)
 - Cell balancing functionality
 - Safety features:
   - Cell Under-Voltage (CUV) protection
+  - Cell Over-Voltage (COV) protection
   - Over-Current (OC) protection
   - Short-Circuit protection
   - Temperature monitoring
