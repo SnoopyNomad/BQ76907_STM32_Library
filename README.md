@@ -24,7 +24,6 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
 - Monitor up to 6 cell voltages
 - Temperature monitoring with NTC thermistor support (returns `int8_t` Celsius)
 - State of Charge (SoC) tracking (voltage-based and coulomb counting)
-- Security key read/write (16-bit keys)
 - Cell balancing (automatic and manual)
 - Safety features:
   - Cell Under-Voltage (CUV) protection
