@@ -33,11 +33,29 @@
 #define FET_CONTROL	            0x68
 #define REGOUT_CONTROL	        0x69
 
-/* Number of cells */
+/* Number of Cells */
 #define NUM_CELLS               6
 
-/* I2C handle */
+/* Battery Capacity Constants */
+#define NOMINAL_CAPACITY_MAH    2800.0f  // 3000mAh per cell (capacity is same in series)
+#define CELL_VOLTAGE_FULL       4200     // Full charge voltage per cell (mV)
+#define CELL_VOLTAGE_EMPTY      2500     // Empty voltage per cell (mV)
+#define CELL_VOLTAGE_RANGE      (CELL_VOLTAGE_FULL - CELL_VOLTAGE_EMPTY)
+
+/* I2C Handle */
 extern I2C_HandleTypeDef hi2c1;
+
+/* SoC Variables */
+float SoC = 0.0f;
+float initialSoC = 0.0f;
+bool socInitialized = false;
+int64_t lastCharge = 0;
+uint32_t lastTime = 0;
+
+/* SoC Configuration */
+static float socCapacityMah = NOMINAL_CAPACITY_MAH;
+static uint16_t socVoltageFull = CELL_VOLTAGE_FULL;
+static uint16_t socVoltageEmpty = CELL_VOLTAGE_EMPTY;
 
 /**
  * @brief Map HAL status to BQ76907 error code
@@ -278,7 +296,7 @@ static inline BQ76907_ErrorCode_t BQ76907_ConfigurePower(void){
     BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr0 = 0x14;
     uint8_t addr1 = 0x90;
-    uint8_t data[1] = {0x00};
+    uint8_t data[1] = {0x30};
     uint8_t dataLen = 1;
     uint8_t length = 2 + dataLen + 1 + 1; // 2 address, 1 data, 1 checksum, 1 length = 5
     uint8_t sum = addr0 + addr1 + data[0];
@@ -363,7 +381,7 @@ static inline BQ76907_ErrorCode_t BQ76907_SetOCCThreshold(void){
     BQ76907_ErrorCode_t errorCode = BQ76907_OK;
     uint8_t addr0 = 0x36;
     uint8_t addr1 = 0x90;
-    uint8_t data[1] = {0x02};
+    uint8_t data[1] = {0x03};
     uint8_t dataLen = 1;
     uint8_t length = 2 + dataLen + 1 + 1; // 2 address, 1 data, 1 checksum, 1 length = 5
     uint8_t sum = addr0 + addr1 + data[0];
@@ -647,6 +665,22 @@ static inline BQ76907_ErrorCode_t BQ76907_EnableAlarms(void){
 }
 
 /**
+ * @brief Reset the passed charge
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+static inline BQ76907_ErrorCode_t BQ76907_ResetPassedCharge(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x05, 0x00}; // RESET_PASSQ() subcommand
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    return BQ76907_OK;
+}
+
+/**
  * @brief Initialize the BQ76907
  * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
  */
@@ -688,6 +722,8 @@ BQ76907_ErrorCode_t BQ76907_Init(void){
     errorCode = BQ76907_ExitCFGUpdate();
     if(errorCode != BQ76907_OK) return errorCode;
     errorCode = BQ76907_EnableAlarms();
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_ResetPassedCharge();
     if(errorCode != BQ76907_OK) return errorCode;
 
     return BQ76907_OK;
@@ -803,6 +839,7 @@ static inline BQ76907_ErrorCode_t BQ76907_ProtRecovery(void){
 
     return BQ76907_OK;
 }
+
 /**
  * @brief Handle the alarms
  * @return BQ76907_ErrorCode_t
@@ -812,18 +849,18 @@ BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
     uint16_t alarms;
 	BQ76907_ErrorCode_t errorCode = BQ76907_ReadAlarmStatus(&alarms);
 	if(errorCode != BQ76907_OK){
-		return errorCode;
-	}
-    
+    return errorCode;
+}
+
 	if(alarms & 0x1000){
 		errorCode = BQ76907_ReadSafetyAlertB(&data);
 		if(errorCode != BQ76907_OK){
 			return errorCode;
 		}
-		errorCode = BQ76907_ClearAlarmStatus(0x1000);
-			if(errorCode != BQ76907_OK){
-				return errorCode;
-		}
+//		errorCode = BQ76907_ClearAlarmStatus(0x1000);
+//			if(errorCode != BQ76907_OK){
+//				return errorCode;
+//		}
 		switch(data){
 			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
 			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
@@ -837,10 +874,10 @@ BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
 		if(errorCode != BQ76907_OK) {
 			return errorCode;
 		}
-		errorCode = BQ76907_ClearAlarmStatus(0x2000);
-			if(errorCode != BQ76907_OK){
-				return errorCode;
-		}
+//		errorCode = BQ76907_ClearAlarmStatus(0x2000);
+//			if(errorCode != BQ76907_OK){
+//				return errorCode;
+//		}
 		switch(data){
 			case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
 			case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
@@ -848,17 +885,17 @@ BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
 			case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
 			case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
 			case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
-	  }
+		}
 	}
 	if(alarms & 0x4000){
 		errorCode = BQ76907_ReadSafetyStatusB(&data);
 		if(errorCode != BQ76907_OK){
 			return errorCode;
 		}
-		errorCode = BQ76907_ClearAlarmStatus(0x4000);
-			if(errorCode != BQ76907_OK){
-				return errorCode;
-		}
+//		errorCode = BQ76907_ClearAlarmStatus(0x4000);
+//			if(errorCode != BQ76907_OK){
+//				return errorCode;
+//		}
 		switch(data){
 			case 0x08: return BQ76907_ERROR_INT_OVERTEMPERATURE;
 			case 0x10: return BQ76907_ERROR_UNDERTEMPERATURE_CHARGE;
@@ -872,10 +909,10 @@ BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
 		if(errorCode != BQ76907_OK) {
 			return errorCode;
 		}
-		errorCode = BQ76907_ClearAlarmStatus(0x8000);
-			if(errorCode != BQ76907_OK){
-				return errorCode;
-		}
+//		errorCode = BQ76907_ClearAlarmStatus(0x8000);
+//			if(errorCode != BQ76907_OK){
+//				return errorCode;
+//		}
 		switch(data){
 			case 0x04: return BQ76907_ERROR_OVERCURRENT_CHARGE;
 			case 0x08: return BQ76907_ERROR_OVERCURRENT_DISCHARGE_2;
@@ -883,9 +920,328 @@ BQ76907_ErrorCode_t BQ76907_HandleAlarms(void){
 			case 0x20: return BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE;
 			case 0x40: return BQ76907_ERROR_CELL_UNDERVOLTAGE;
 			case 0x80: return BQ76907_ERROR_CELL_OVERVOLTAGE;
-	  }
+		}
 	}
 
-	return errorCode;
+    return errorCode;
+}
+
+/**
+ * @brief Read the passed charge and time
+ * @param charge Pointer to store the accumulated charge (48-bit signed value in userA-seconds)
+ * @param time Pointer to store the accumulated time (32-bit unsigned value in 250ms units)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_ReadPassedCharge(int64_t *charge, uint32_t *time){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x04, 0x00}; // PASSQ() subcommand
+    uint8_t data[12];
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_ReadRegister(0x40, data, 12);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    // Extract accumulated charge (48-bit signed value)
+    // First 32 bits are the lower bits
+    uint32_t chargeLower = (uint32_t)data[0] | ((uint32_t)data[1] << 8) | 
+                          ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+    // Upper 16 bits are sign-extended to 32 bits
+    int32_t chargeUpper = (int32_t)((int16_t)(data[4] | (data[5] << 8)));
+    
+    // Combine into 64-bit signed value
+    *charge = ((int64_t)chargeUpper << 32) | chargeLower;
+
+    // Extract accumulated time (32-bit unsigned, in 250ms units)
+    *time = (uint32_t)data[8] | ((uint32_t)data[9] << 8) | 
+            ((uint32_t)data[10] << 16) | ((uint32_t)data[11] << 24);
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Check if the battery is charging
+ * @param isCharging Pointer to store the charging status (true if charging, false if discharging)
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_IsCharging(bool *isCharging){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    int64_t charge;
+    uint32_t time;
+    
+    // Read the passed charge and time
+    errorCode = BQ76907_ReadPassedCharge(&charge, &time);
+    if(errorCode != BQ76907_OK) return errorCode;
+    
+    // Calculate current from charge and time
+    // charge is in userA-seconds, time is in 250ms units
+    // Convert time to seconds: time * 0.25
+    float timeSeconds = (float)time * 0.25f;
+    
+    if(timeSeconds > 0.0f) {
+        // Current = charge / time (in amperes)
+        float current = (float)charge / timeSeconds;
+        
+        // Positive current means charging, negative means discharging
+        *isCharging = (current > 0.0f);
+    } else {
+        // If no time has passed, assume not charging
+        *isCharging = false;
+    }
+    
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Enable cell balancing for specified cells
+ * @param cellMask Bit mask of cells to balance
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+static inline BQ76907_ErrorCode_t BQ76907_EnableCellBalancing(uint8_t cellMask){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x83, 0x00}; // CB_ACTIVE_CELLS() subcommand
+    uint8_t data[1] = {cellMask};
+    uint8_t dataLen = 1;
+    uint8_t length = 2 + dataLen + 1 + 1; // 2 address, 1 data, 1 checksum, 1 length = 5
+    uint8_t sum = subcmd[0] + subcmd[1] + data[0];
+    uint8_t checksum = 0xFF - sum;
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x40, &data[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x60, &checksum, 1);
+    if (errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x61, &length, 1);
+    if (errorCode != BQ76907_OK) return errorCode;
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Disable cell balancing
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_DisableCellBalancing(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x83, 0x00}; // CB_ACTIVE_CELLS() subcommand
+    uint8_t data[1] = {0x00};
+    uint8_t dataLen = 1;
+    uint8_t length = 2 + dataLen + 1 + 1; // 2 address, 1 data, 1 checksum, 1 length = 5
+    uint8_t sum = subcmd[0] + subcmd[1] + data[0];
+    uint8_t checksum = 0xFF - sum;
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x40, &data[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x60, &checksum, 1);
+    if (errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x61, &length, 1);
+    if (errorCode != BQ76907_OK) return errorCode;
+
+    return BQ76907_OK;
+}
+
+
+/**
+ * @brief Get the current cell balancing status
+ * @param activeCells Pointer to store the bit mask of actively balanced cells
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_GetCellBalancingStatus(uint8_t *activeCells){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint8_t subcmd[2] = {0x83, 0x00}; // CB_ACTIVE_CELLS() subcommand for reading
+
+    errorCode = BQ76907_WriteRegister(0x3E, &subcmd[0], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_WriteRegister(0x3F, &subcmd[1], 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+    errorCode = BQ76907_ReadRegister(0x40, activeCells, 1);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Manages the cell balancing process based on battery state.
+ * @details This function should be called periodically (e.g., every second). It manages 
+ *          the balancing of the cells to equalize the pack. BQ76907 only allows 2 cells 
+ *          to be balanced at once. Balances the 2 highest voltage cells until there's 
+ *          a 20mV difference between min and max.
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_ManageCellBalancing(void){
+    BQ76907_ErrorCode_t errorCode;
+    uint16_t cellVoltages[NUM_CELLS];
+    uint8_t balanceMask = 0x00;
+    uint16_t minVoltage = 0xFFFF;
+    uint16_t maxVoltage = 0x0000;
+    int8_t topIndices[2] = {-1, -1};
+
+    errorCode = BQ76907_ReadCellVoltages(cellVoltages);
+    if(errorCode != BQ76907_OK) return errorCode;
+
+    // Find min and max voltages
+    for(uint8_t i = 0; i < NUM_CELLS; i++){
+        if(cellVoltages[i] < minVoltage) minVoltage = cellVoltages[i];
+        if(cellVoltages[i] > maxVoltage) maxVoltage = cellVoltages[i];
+    }
+
+    // Check if balancing is needed (difference > 20mV)
+    if((maxVoltage - minVoltage) <= 20) {
+        // Voltage difference is small enough, disable balancing
+        return BQ76907_DisableCellBalancing();
+    }
+
+    // Find indices of the two highest voltage cells
+    // First, find the highest
+    for(uint8_t i = 0; i < NUM_CELLS; i++){
+        if(topIndices[0] == -1 || cellVoltages[i] > cellVoltages[topIndices[0]]){
+            topIndices[1] = topIndices[0];
+            topIndices[0] = i;
+        } else if(topIndices[1] == -1 || cellVoltages[i] > cellVoltages[topIndices[1]]){
+            if(i != topIndices[0]) // avoid duplicate index
+                topIndices[1] = i;
+        }
+    }
+
+    // If only one cell found (all voltages equal), just balance that one
+    if(topIndices[1] == -1) topIndices[1] = topIndices[0];
+
+    // Create balance mask for the 2 highest voltage cells
+    // NOTE: The BQ76907 cell balancing mask is 1-indexed (Bit 1 = Cell 1),
+    // and Bit 0 is reserved.
+    for(uint8_t i = 0; i < 2; i++){
+        uint8_t bitToSet = topIndices[i] + 1; // Convert to 1-indexed
+        // Skip setting bit 0 as it's reserved
+        if(bitToSet != 0) {
+            balanceMask |= (1 << bitToSet);
+        }
+    }
+
+    return BQ76907_EnableCellBalancing(balanceMask);
+}
+
+/**
+ * @brief Calculate SoC from voltage using linear voltage-to-SoC mapping
+ * @param cellVoltage Cell voltage in millivolts
+ * @return SoC percentage (0-100)
+ */
+static float BQ76907_VoltageToSoC(uint16_t cellVoltage){
+    // Linear voltage-to-SoC mapping for Li-ion batteries
+    
+    if(cellVoltage >= socVoltageFull) return 100.0f;
+    if(cellVoltage <= socVoltageEmpty) return 0.0f;
+    
+    // Linear mapping: SoC = (V_cell - V_empty) / (V_full - V_empty) * 100
+    float voltageRange = (float)(socVoltageFull - socVoltageEmpty);
+    float voltageRatio = (float)(cellVoltage - socVoltageEmpty) / voltageRange;
+    
+    return voltageRatio * 100.0f;
+}
+
+/**
+ * @brief Calculate initial SoC based on average cell voltage
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_SoCInit(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    uint16_t cellVoltages[NUM_CELLS];
+    float totalVoltage = 0.0f;
+    float avgCellVoltage = 0.0f;
+    
+    // Read all cell voltages
+    errorCode = BQ76907_ReadCellVoltages(cellVoltages);
+    if(errorCode != BQ76907_OK) return errorCode;
+    
+    // Calculate total pack voltage
+    for(uint8_t i = 0; i < NUM_CELLS; i++){
+        totalVoltage += (float)cellVoltages[i];
+    }
+    
+    // Calculate average cell voltage
+    avgCellVoltage = totalVoltage / NUM_CELLS;
+    
+    // Calculate SoC based on voltage using linear mapping
+    float voltageSoC = BQ76907_VoltageToSoC((uint16_t)avgCellVoltage);
+    
+    // Set initial SoC
+    initialSoC = voltageSoC;
+    SoC = initialSoC;
+    socInitialized = true;
+    
+    // Reset charge integration for coulomb counting
+    lastCharge = 0;
+    lastTime = 0;
+    
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Update SoC using coulomb counting from passed charge
+ * @return BQ76907_ErrorCode_t (BQ76907_OK on success)
+ */
+BQ76907_ErrorCode_t BQ76907_SoCUpdate(void){
+    BQ76907_ErrorCode_t errorCode = BQ76907_OK;
+    int64_t currentCharge;
+    uint32_t currentTime;
+    float chargeDelta = 0.0f;
+    float timeDelta = 0.0f;
+    
+    // Only update if SoC has been initialized
+    if(!socInitialized){
+        return BQ76907_SoCInit();
+    }
+    
+    // Read current passed charge and time
+    errorCode = BQ76907_ReadPassedCharge(&currentCharge, &currentTime);
+    if(errorCode != BQ76907_OK) return errorCode;
+    
+    // Calculate deltas (charge difference since last reading)
+    chargeDelta = (float)(currentCharge - lastCharge);
+    timeDelta = (float)(currentTime - lastTime) * 0.25f; // Convert 250ms units to seconds
+    
+    // Only update if we have meaningful time difference
+    if(timeDelta > 0.0f) {
+        // Convert charge from userA-seconds to mAh
+        // userA-seconds = micro-ampere-seconds = 1e-6 A * s
+        // mAh = (charge in A*s) / 3600 * 1000
+        float chargeMah = (chargeDelta * 1e-6f) / 3600.0f * 1000.0f;
+        
+        // Update SoC: SoC = SoC_initial + (charge_mAh / capacity_mAh) * 100
+        // Note: In series configuration, pack capacity = single cell capacity
+        //       Positive charge means charging (SoC increases)
+        //       Negative charge means discharging (SoC decreases)
+        float newSoC = initialSoC + (chargeMah / socCapacityMah) * 100.0f;
+        
+        // Clamp SoC between 0% and 100%
+        if(newSoC < 0.0f) newSoC = 0.0f;
+        if(newSoC > 100.0f) newSoC = 100.0f;
+        
+        // Update SoC directly
+        SoC = newSoC;
+    }
+    
+    // Update last values for next calculation
+    lastCharge = currentCharge;
+    lastTime = currentTime;
+    
+    return BQ76907_OK;
+}
+
+/**
+ * @brief Get the State of Charge (SoC) of the battery pack
+ * @return The SoC of the battery pack as a percentage
+ */
+uint8_t BQ76907_GetSoC(void){
+    return (uint8_t)roundf(SoC);
+
 }
 
