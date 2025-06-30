@@ -31,7 +31,6 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
   - Over-Current (OC) protection
   - Short-Circuit protection
   - Temperature monitoring
-- FET control for charge/discharge
 - Alarm and status monitoring
 - Compatible with STM32 HAL drivers
 
