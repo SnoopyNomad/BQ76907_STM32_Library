@@ -1,6 +1,6 @@
 # BQ76907 STM32 Library
 
-A lightweight, easy-to-integrate C library for interfacing with the Texas Instruments BQ76907 battery management system IC. This library provides functions to monitor and protect battery cells, handle cell balancing, and manage battery safety features—allowing you to build robust battery management systems on STM32 microcontrollers.
+A lightweight, easy-to-integrate C library for interfacing with the Texas Instruments BQ76907 battery management system IC. This library provides functions to monitor and protect battery cells, handle cell balancing, manage battery safety features, and track state of charge (SoC)—allowing you to build robust battery management systems on STM32 microcontrollers.
 
 ## Table of Contents
 - [Features](#features)
@@ -10,7 +10,7 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
 - [Usage](#usage)
   - [Initialization](#initialization)
   - [Reading Battery Data](#reading-battery-data)
-  - [Security Key Handling](#security-key-handling)
+  - [State of Charge (SoC)](#state-of-charge-soc)
   - [Cell Balancing](#cell-balancing)
   - [Safety Features](#safety-features)
 - [Error Handling](#error-handling)
@@ -23,15 +23,16 @@ A lightweight, easy-to-integrate C library for interfacing with the Texas Instru
 - Initialize and configure BQ76907 via I²C
 - Monitor up to 6 cell voltages
 - Temperature monitoring with NTC thermistor support (returns `int8_t` Celsius)
+- State of Charge (SoC) tracking (voltage-based and coulomb counting)
 - Security key read/write (16-bit keys)
-- Cell balancing functionality
+- Cell balancing (automatic and manual)
 - Safety features:
   - Cell Under-Voltage (CUV) protection
+  - Cell Over-Voltage (COV) protection
   - Over-Current (OC) protection
   - Short-Circuit protection
   - Temperature monitoring
 - FET control for charge/discharge
-- Deep sleep mode support
 - Alarm and status monitoring
 - Compatible with STM32 HAL drivers
 
@@ -91,19 +92,18 @@ int main(void)
     HAL_Init();
     SystemClock_Config();
     MX_I2C1_Init();
-   /* ... rest of your initialization code */
+    /* ... rest of your initialization code */
 }
 ```
 
-2. **Include the Library**: Add the library header to your project.
+2. **Include the Library**:  
 ```c
 #include "bq76907.h"
 ```
 
-3. Initialize the BQ76907:
+3. **Initialize the BQ76907**:  
 ```c
-ErrorCode_t errorCode;
-
+BQ76907_ErrorCode_t errorCode;
 errorCode = BQ76907_Init();
 if(errorCode != BQ76907_OK){
     Error_Handler();
@@ -118,82 +118,51 @@ int8_t temperature;
 uint16_t alarmStatus;
 uint8_t safetyStatusA, safetyStatusB;
 
-// Read cell voltages
 errorCode = BQ76907_ReadCellVoltages(cellVoltages);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
-
-// Read temperature (Celsius)
 errorCode = BQ76907_ReadBatteryTemperature(&temperature);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
-
-// Read alarm status
 errorCode = BQ76907_ReadAlarmStatus(&alarmStatus);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
-
-// Read safety status
 errorCode = BQ76907_ReadSafetyStatusA(&safetyStatusA);
 errorCode = BQ76907_ReadSafetyStatusB(&safetyStatusB);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
 ```
 
-### Security Key Handling
+### State of Charge (SoC)
 
 ```c
-uint16_t key1, key2;
-// Read security keys
-errorCode = BQ76907_ReadSecurityKeys(&key1, &key2);
+// Initialize SoC (should be called after BQ76907_Init)
+errorCode = BQ76907_SoCInit();
 if(errorCode != BQ76907_OK){
     Error_Handler();
 }
 
-// Write security keys (example)
-uint8_t keys[4];
-keys[0] = key1 & 0xFF; keys[1] = (key1 >> 8) & 0xFF;
-keys[2] = key2 & 0xFF; keys[3] = (key2 >> 8) & 0xFF;
-errorCode = BQ76907_WriteKeys(keys);
+// Periodically update SoC (e.g., in main loop)
+errorCode = BQ76907_SoCUpdate();
 if(errorCode != BQ76907_OK){
     Error_Handler();
 }
+
+// Get current SoC (percentage)
+uint8_t soc = BQ76907_GetSoC();
 ```
 
 ### Cell Balancing
 
 ```c
-// Balance cells with minimum and maximum voltages
-errorCode = BQ76907_BalanceMinMaxCells(cellVoltages);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
+// Automatic balancing (call periodically)
+errorCode = BQ76907_ManageCellBalancing();
 
-// Read active balancing cells
+// Manual control
+errorCode = BQ76907_EnableCellBalancing(0x06); // Example: balance cells 2 and 3
+errorCode = BQ76907_DisableCellBalancing();
+
 uint8_t activeCells;
-errorCode = BQ76907_ReadCBActiveCells(&activeCells);
-if(errorCode != BQ76907_OK){
-    Error_Handler();
-}
+errorCode = BQ76907_GetCellBalancingStatus(&activeCells);
 ```
 
 ### Safety Features
 
 ```c
-// Enable/disable charge FET
-errorCode = BQ76907_CHGFETOn();  // Enable charging
-errorCode = BQ76907_CHGFETOff(); // Disable charging
-
-// Enable/disable discharge FET
-errorCode = BQ76907_DSGFETOn();  // Enable discharging
-errorCode = BQ76907_DSGFETOff(); // Disable discharging
-
-// Enter/exit deep sleep mode
-// (see code for power management and protection recovery functions)
+// Protection recovery
+errorCode = BQ76907_ProtRecovery();
 ```
 
 ## Error Handling
@@ -201,22 +170,22 @@ errorCode = BQ76907_DSGFETOff(); // Disable discharging
 All functions return `BQ76907_ErrorCode_t`:
 ```c
 typedef enum {
-    BQ76907_OK = 0,                           // Operation successful
-    BQ76907_ERROR_I2C = 1,                    // I²C communication error
-    BQ76907_ERROR_BUSY = 2,                   // Device is busy
-    BQ76907_ERROR_TIMEOUT = 3,                // I²C timeout
-    BQ76907_ERROR_UNKNOWN = 4,                // Unknown error
-    BQ76907_ERROR_UNDERTEMPERATURE_CHARGE = 5, // Battery temperature too low for charging
-    BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE = 6, // Battery temperature too low for discharging
-    BQ76907_ERROR_INT_OVERTEMPERATURE = 7,    // Internal temperature too high
-    BQ76907_ERROR_OVERTEMPERATURE_CHARGE = 8,  // Battery temperature too high for charging
-    BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE = 9, // Battery temperature too high for discharging
-    BQ76907_ERROR_OVERCURRENT_CHARGE = 10,     // Charging current too high
-    BQ76907_ERROR_OVERCURRENT_DISCHARGE_2 = 11, // Discharge current too high (level 2)
-    BQ76907_ERROR_OVERCURRENT_DISCHARGE_1 = 12, // Discharge current too high (level 1)
-    BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE = 13, // Short circuit detected during discharge
-    BQ76907_ERROR_CELL_UNDERVOLTAGE = 14,     // Cell voltage below minimum threshold
-    BQ76907_ERROR_CELL_OVERVOLTAGE = 15       // Cell voltage above maximum threshold
+    BQ76907_OK = 0,
+    BQ76907_ERROR_I2C = 1,
+    BQ76907_ERROR_BUSY = 2,
+    BQ76907_ERROR_TIMEOUT = 3,
+    BQ76907_ERROR_UNKNOWN = 4,
+    BQ76907_ERROR_UNDERTEMPERATURE_CHARGE = 5,
+    BQ76907_ERROR_UNDERTEMPERATURE_DISCHARGE = 6,
+    BQ76907_ERROR_INT_OVERTEMPERATURE = 7,
+    BQ76907_ERROR_OVERTEMPERATURE_CHARGE = 8,
+    BQ76907_ERROR_OVERTEMPERATURE_DISCHARGE = 9,
+    BQ76907_ERROR_OVERCURRENT_CHARGE = 10,
+    BQ76907_ERROR_OVERCURRENT_DISCHARGE_2 = 11,
+    BQ76907_ERROR_OVERCURRENT_DISCHARGE_1 = 12,
+    BQ76907_ERROR_SHORT_CIRCUIT_DISCHARGE = 13,
+    BQ76907_ERROR_CELL_UNDERVOLTAGE = 14,
+    BQ76907_ERROR_CELL_OVERVOLTAGE = 15
 } BQ76907_ErrorCode_t;
 ```
 
